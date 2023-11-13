@@ -12,6 +12,16 @@ from logging.config import dictConfig
 import requests
 from google.analytics.data_v1beta import BetaAnalyticsDataClient
 from google.analytics.data_v1beta.types import RunReportRequest
+from pytrends.request import TrendReq
+
+import matplotlib.pyplot as plt
+
+from io import BytesIO
+import base64
+
+import time
+import collections
+
 
 # Configure the logging settings
 log_format = '%(asctime)s [%(levelname)s] - %(message)s'
@@ -127,7 +137,7 @@ def fetch_google_analytics_data():
 
     os.environ['GOOGLE_APPLICATION_CREDENTIALS'] = 'round-bruin-400713-032c0a97d5b2.json'
     PROPERTY_ID = '407455001'
-    starting_date = "8daysAgo"
+    starting_date = "50daysAgo"
     ending_date = "yesterday"
 
     client = BetaAnalyticsDataClient()
@@ -156,3 +166,97 @@ def fetch_google_analytics_data():
         metric_value = "N/A"  # Handle the case where there is no data
 
     return f'Number of visitors : {metric_value}'
+
+@app.route('/trends', methods=['GET', 'POST'])
+def trends():
+    pytrends = TrendReq(hl='en-US', tz=360)  # Create a pytrends instance with your preferred settings
+    pytrends.build_payload(kw_list=['linux', 'windows'], timeframe='2019-03-01 2020-10-31')
+    data = pytrends.interest_over_time()
+    
+    # Generate a line plot
+    plt.figure(figsize=(10, 6))
+    plt.plot(data.index, data['linux'], label='linux')
+    plt.plot(data.index, data['windows'], label='windows')
+    plt.xlabel('Date')
+    plt.ylabel('Search Interest')
+    plt.title('Google Trends Data')
+    plt.legend()
+    
+    # Convert the plot to a bytes object and then to base64 for embedding in a web page
+    buffer = BytesIO()
+    plt.savefig(buffer, format='png')
+    plt.close()
+    buffer.seek(0)
+    plot_data = base64.b64encode(buffer.read()).decode()
+    
+    return render_template('trend.html', plot_data=plot_data)
+
+
+
+# Decorator to measure execution time
+def execution_time_decorator(func):
+    def wrapper(*args, **kwargs):
+        start_time = time.time()
+        result = func(*args, **kwargs)
+        end_time = time.time()
+        execution_time = end_time - start_time
+        return result, execution_time
+    return wrapper
+
+def count_words_with_dict(text):
+    words = text.split()
+    word_count = {}
+    for word in words:
+        word_count[word] = word_count.get(word, 0) + 1
+    return word_count
+
+def count_words_with_counter(text):
+    words = text.split()
+    word_count = collections.Counter(words)
+    return word_count
+
+@execution_time_decorator
+def count_dict(text):
+    return count_words_with_dict(text)
+        
+@execution_time_decorator
+def count_counter(text):
+    return count_words_with_counter(text)
+
+@app.route('/word_count_experiment', methods=['GET'])
+def word_count_experiment():
+    # Load Shakespeare's text (you can also download it here if needed)
+    with open('shakespeare.txt', 'r') as file:
+        shakespeare_text = file.read()
+
+    # Create lists to store execution times and results
+    execution_times_dict = []
+    execution_times_counter = []
+
+    # Run the experiment 10 times
+    for _ in range(100):
+        result_dict, execution_time_dict = count_dict(shakespeare_text)
+        result_counter, execution_time_counter = count_counter(shakespeare_text)
+
+        execution_times_dict.append((result_dict, execution_time_dict))
+        execution_times_counter.append((result_counter, execution_time_counter))
+
+    # Extract execution times from the results
+    execution_times_dict = [execution_time for _, execution_time in execution_times_dict]
+    execution_times_counter = [execution_time for _, execution_time in execution_times_counter]
+
+    # Now, you can plot the execution time distributions
+    plt.plot(execution_times_dict, label='Using Dictionary')
+    plt.plot(execution_times_counter, label='Using Counter')
+    plt.xlabel('Execution Time (seconds)')
+    plt.ylabel('Frequency')
+    plt.legend()
+    
+    # Convert the plot to a bytes object and then to base64 for embedding in a web page
+    buffer = BytesIO()
+    plt.savefig(buffer, format='png')
+    plt.close()
+    buffer.seek(0)
+    plot_data = base64.b64encode(buffer.read()).decode()
+
+    return render_template('word_count.html', plot_data=plot_data)
